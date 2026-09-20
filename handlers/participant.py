@@ -9,22 +9,22 @@ def participant_banner(challenge, participant):
     prizes = "\n".join(f"{m} نفر {i}: {p}" for i, (m, p) in enumerate(zip(["🥇", "🥈", "🥉"] + ["🏅"] * 17, challenge.get("prizes", [])), 1))
     rules = challenge.get("rules") or "پیش‌فرض"
     if str(rules).strip().lower() in {"default", "پیش‌فرض", "پیش فرض"}:
-        rules = "🚫 از لایک‌های فیک و غیرواقعی استفاده نکنید؛ فعالیت‌های مشکوک بررسی می‌شود و ممکن است باعث کسر لایک یا حذف از چالش شود."
+        rules = "🚫 از لایک‌های فیک و غیرواقعی استفاده نکنید؛ فعالیت‌های مشکوک بررسی می‌شود."
     return (
-        "🌟 کارت شرکت‌کننده چالش لایکی 🌟\n\n"
-        f"🎯 شماره: {participant['number']}\n"
-        f"👤 نام: {participant['name']}\n"
-        f"🎂 سن: {participant['age']} سال\n"
-        f"📍 ولایت / شهر: {participant['city']}\n\n"
-        "━━━━━━━━━━━━━━\n🏆 جوایز چالش\n"
-        f"{prizes or '🏆 هنوز جایزه‌ای ثبت نشده است.'}\n\n"
-        "━━━━━━━━━━━━━━\n📜 قوانین چالش\n"
+        "👤 کارت رسمی شرکت‌کننده\n\n"
+        f"# {participant['number']}  |  {participant['name']}\n"
+        f"🎂 {participant['age']} سال  |  📍 {participant['city']}\n\n"
+        "━━━━━━━━━━━━━━\n"
+        "🏆 جوایز چالش\n"
+        f"{prizes or 'هنوز جایزه‌ای ثبت نشده است.'}\n\n"
+        "━━━━━━━━━━━━━━\n"
+        "📜 قوانین\n"
         f"{rules}\n\n"
         "━━━━━━━━━━━━━━\n"
-        f"🎯 ثبت‌نام: {challenge.get('registration_link') or '-'}\n"
+        f"🔗 ثبت‌نام: {challenge.get('registration_link') or '-'}\n"
         f"📢 کانال: {challenge.get('channel_link') or '-'}\n"
         f"👑 برگزارکننده: {challenge.get('owner_username') or '-'}\n\n"
-        f"❤️ موفق باشی {participant['name']}!\n🔥 برای جمع‌کردن لایک بیشتر تلاش کن!"
+        "❤️ برای شرکت‌کننده موردنظرت لایک ثبت کن."
     )
 
 
@@ -154,7 +154,7 @@ async def render_user_stats(query, context, challenge, participant):
     rate = int(challenge.get("stars_rate", 0)) if challenge.get("stars_enabled") else 0
     score = int(participant.get("likes", 0)) + int(participant.get("stars_received", 0)) * rate
     from handlers.owner import remaining_text
-    text = t(lang, "stats_header", title=challenge.get("title", "-"), channel=challenge.get("channel_link") or "-", number=participant.get("number"), likes=participant.get("likes", 0), stars=participant.get("stars_received", 0), score=score, remaining=remaining_text(challenge["end_time"]))
+    text = t(lang, "stats_header", title=challenge.get("title", "-"), channel=challenge.get("channel_link") or "-", number=participant.get("number"), likes=participant.get("likes", 0), stars=participant.get("stars_received", 0), score=score, star_likes=int(participant.get("stars_received", 0))*rate, remaining=remaining_text(challenge["end_time"]))
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("🚨 گزارش چالش", callback_data=f"report_open_{challenge['_id']}")], [InlineKeyboardButton(t(lang, "btn_back"), callback_data="menu_back")]])
     await query.message.edit_text(text, reply_markup=kb)
 
