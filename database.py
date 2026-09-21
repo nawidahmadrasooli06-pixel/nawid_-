@@ -66,6 +66,7 @@ def create_challenge(owner_id, data):
         "channel_id": int(data["channel_id"]),
         "channel_username": data.get("channel_username", ""),
         "channel_link": data.get("channel_link", ""),
+        "channel_title": data.get("channel_title", ""),
         "title": data.get("title", "چالش لایکی"),
         "start_time": data["start_time"],
         "end_time": data["end_time"],
@@ -107,7 +108,16 @@ def active_challenges(limit=50):
 
 
 def owner_active_challenges(owner_id, limit=50):
-    return list(challenges.find({"owner_id": int(owner_id), "active": True}).sort("created_at", DESCENDING).limit(limit))
+    return list(challenges.find({"owner_id": int(owner_id), "active": True, "deleted_by_owner": {"$ne": True}}).sort("created_at", DESCENDING).limit(limit))
+
+
+def owner_challenges(owner_id, limit=100):
+    return list(challenges.find({"owner_id": int(owner_id), "deleted_by_owner": {"$ne": True}}).sort("created_at", DESCENDING).limit(limit))
+
+
+def delete_challenge_for_owner(challenge_id, owner_id):
+    result = challenges.update_one({"_id": ObjectId(str(challenge_id)), "owner_id": int(owner_id)}, {"$set": {"deleted_by_owner": True, "deleted_at": utcnow()}})
+    return result.modified_count > 0
 
 
 def participant_for_user(challenge_id, user_id):
