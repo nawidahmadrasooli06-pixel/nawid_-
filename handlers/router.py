@@ -18,6 +18,13 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     if text.lower() in {"آمار چالش", "آمار چالش من", "challenge stats", "my challenge stats"}:
         context.user_data["state"] = None; await owner_stats_entry(update, context); return
+    state=context.user_data.get("state")
+    if state and state.startswith("edit_"):
+        from handlers.owner import receive_edit_text
+        await receive_edit_text(update, context); return
+    if state == "participant_edit":
+        from handlers.participant import receive_participant_edit
+        await receive_participant_edit(update, context); return
     handler = TEXT_STATE_HANDLERS.get(context.user_data.get("state"))
     if handler:
         await handler(update, context); return
@@ -32,8 +39,12 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("👋 سلام! من دستیار ربات چالش هستم.\n\nاگر درباره ساخت چالش، ثبت‌نام، لایک، استارز یا آمار سؤال داری، بپرس.\n\nیا از ▶️ استارت استفاده کن تا پنل را باز کنم.")
 
 async def photo_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message and update.message.chat.type == "private" and context.user_data.get("state") == "await_photo":
-        await receive_photo(update, context)
+    if update.message and update.message.chat.type == "private":
+        if context.user_data.get("state") == "await_photo":
+            await receive_photo(update, context); return
+        if context.user_data.get("state") == "participant_edit" and context.user_data.get("participant_edit",{}).get("field")=="photo":
+            from handlers.participant import receive_participant_edit
+            await receive_participant_edit(update, context)
 
 async def general_nontext_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or update.message.chat.type != "private": return
@@ -41,5 +52,5 @@ async def general_nontext_router(update: Update, context: ContextTypes.DEFAULT_T
     if state == "await_photo":
         await update.message.reply_text("🖼️ لطفاً عکس را به صورت عکس بفرست، نه استیکر، فایل یا پیام."); return
     if state == "await_custom_emojis":
-        await update.message.reply_text("🎨 لطفاً ایموجی‌های سفارشی تلگرام را در یک پیام بفرست.\n\nحداکثر ۶ ایموجی کافی است."); return
+        await update.message.reply_text("🎨 لطفاً ایموجی‌های سفارشی تلگرام را در یک پیام بفرست.\n\nهر تعداد ایموجی سفارشی که می‌خواهی در یک پیام بفرست؛ ربات محدودیت شش‌تایی ندارد."); return
     await update.message.reply_text("👋 من اینجام. اگر کمکی می‌خواهی، از ▶️ استارت استفاده کن یا سؤال خودت را بپرس.")
