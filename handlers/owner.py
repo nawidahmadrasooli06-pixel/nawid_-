@@ -5,7 +5,7 @@ import jdatetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity
 from telegram.ext import ContextTypes
 from lang import t
-from database import create_challenge, set_registration_link, owner_active_challenges, challenge_stats, participants, challenges, audit, get_challenge, get_leaderboard
+from database import create_challenge, set_registration_link, owner_active_challenges, owner_challenges, delete_challenge_for_owner, challenge_stats, participants, challenges, audit, get_challenge, get_leaderboard
 
 TZS = {"af": "Asia/Kabul", "ir": "Asia/Tehran", "de": "Europe/Berlin"}
 WEEKDAYS_FA = ["دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه", "یکشنبه"]
@@ -36,13 +36,30 @@ def calendar_keyboard(lang):
     ])
 
 
+def rules_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🛡️ قوانین پایه", callback_data="rules_preset_base")],
+        [InlineKeyboardButton("🚫 ضد تقلب", callback_data="rules_preset_anti")],
+        [InlineKeyboardButton("👥 عضویت و رفتار", callback_data="rules_preset_member")],
+        [InlineKeyboardButton("✨ همه قوانین پیشنهادی", callback_data="rules_preset_all")],
+        [InlineKeyboardButton("✍️ قوانین اختصاصی", callback_data="rules_custom")],
+    ])
+
+RULE_PRESETS = {
+    "base": "۱. استفاده از لایک‌های فیک و غیرواقعی ممنوع است و فعالیت‌های مشکوک بررسی می‌شود.\n۲. هر کاربر فقط یک‌بار می‌تواند برای هر شرکت‌کننده لایک ثبت کند.",
+    "anti": "۱. استفاده از لایک‌های فیک، رباتی یا غیرواقعی ممنوع است و می‌تواند باعث حذف شرکت‌کننده از چالش شود.\n۲. هرگونه دستکاری در روند چالش می‌تواند باعث لغو نتیجه شود.",
+    "member": "۱. برای ثبت لایک باید عضو کانال باشید.\n۲. احترام به سایر شرکت‌کننده‌ها الزامی است و رفتار توهین‌آمیز یا مزاحمت قابل گزارش است.",
+    "all": "۱. استفاده از لایک‌های فیک و غیرواقعی ممنوع است و فعالیت‌های مشکوک بررسی می‌شود.\n۲. هر کاربر فقط یک‌بار می‌تواند برای هر شرکت‌کننده لایک ثبت کند.\n۳. برای ثبت لایک باید عضو کانال باشید.\n۴. دستکاری در روند چالش می‌تواند باعث حذف شرکت‌کننده یا لغو نتیجه شود.\n۵. احترام به سایر شرکت‌کننده‌ها الزامی است.",
+}
+
+
 def yes_no_keyboard(lang):
     return InlineKeyboardMarkup([[InlineKeyboardButton(t(lang, "yes"), callback_data="stars_yes"), InlineKeyboardButton(t(lang, "no"), callback_data="stars_no")]])
 
 
 def preview_keyboard(lang):
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("✏️ ویرایش ایموجی‌ها" if lang == "fa" else "✏️ Customize emojis", callback_data="preview_emoji")],
+        [InlineKeyboardButton("✏️ ویرایش بنر", callback_data="preview_edit"), InlineKeyboardButton("🎨 ایموجی‌های پریمیوم", callback_data="preview_emoji")],
         [InlineKeyboardButton(t(lang, "btn_confirm"), callback_data="preview_confirm"), InlineKeyboardButton(t(lang, "btn_cancel"), callback_data="preview_cancel")],
     ])
 
@@ -131,9 +148,14 @@ def prize_lines(prizes):
 def build_custom_emoji_entities(text, ids):
     if not ids:
         return []
-    placeholders = ["🌟", "🎯", "🏆", "❤️", "⭐️", "🚀"]
+    placeholders = ["🌟", "🎯", "🏆", "❤️", "⭐️", "🚀", "🔥", "💎", "🎁", "📢", "👑", "⏳", "📅", "📜", "✨", "💫"]
     entities = []
-    for placeholder, custom_id in zip(placeholders, ids):
+    if not ids:
+        return []
+    # No artificial six-emoji limit. IDs are reused across matching banner emoji; Telegram
+    # itself remains the final authority on message/entity limits.
+    for idx, placeholder in enumerate(placeholders):
+        custom_id = ids[idx % len(ids)]
         start = 0
         while True:
             pos = text.find(placeholder, start)
@@ -210,7 +232,7 @@ async def receive_channel(update, context):
         if member.status not in ("administrator", "creator"): raise RuntimeError
     except Exception:
         await update.message.reply_text(t(lang, "bad_channel")); return
-    context.user_data["new_challenge"].update({"channel_id": chat.id, "channel_username": username, "channel_link": f"https://t.me/{username}"})
+    context.user_data["new_challenge"].update({"channel_id": chat.id, "channel_username": username, "channel_title": getattr(chat, "title", ""), "channel_link": f"https://t.me/{username}"})
     context.user_data["state"] = "await_owner_username"
     await update.message.reply_text(t(lang, "ask_owner_username"))
 
@@ -318,7 +340,7 @@ async def receive_prize(update, context):
     data = context.user_data["new_challenge"]; data["prizes"].append(value); rank = context.user_data["prize_rank"] + 1
     if rank <= data["winners_count"]:
         context.user_data["prize_rank"] = rank; await update.message.reply_text(t(lang, "ask_prize", rank=rank)); return
-    context.user_data["state"] = "await_rules"; await update.message.reply_text(t(lang, "ask_rules"))
+    context.user_data["state"] = None; await update.message.reply_text(t(lang, "ask_rules"), reply_markup=rules_keyboard())
 
 
 async def receive_rules(update, context):
@@ -326,6 +348,16 @@ async def receive_rules(update, context):
     context.user_data["new_challenge"]["rules"] = rules; context.user_data["state"] = None
     await update.message.reply_text(t(lang, "ask_stars"), reply_markup=yes_no_keyboard(lang))
 
+
+async def rules_preset_callback(update, context):
+    q=update.callback_query; await q.answer(); lang=context.user_data.get("lang","fa"); data=context.user_data.get("new_challenge")
+    if not data: return
+    key=(q.data.replace("rules_preset_","") if q.data.startswith("rules_preset_") else "custom")
+    if key in RULE_PRESETS:
+        data["rules"]=RULE_PRESETS[key]; context.user_data["state"]=None
+        await q.message.edit_text("📜 قوانین انتخاب شد.\n\n"+data["rules"]+"\n\nحالا بخش استارز را انتخاب کن.", reply_markup=yes_no_keyboard(lang))
+    elif key=="custom":
+        context.user_data["state"]="await_rules"; await q.message.edit_text("✍️ قوانین اختصاصی را بفرست.\n\nاگر چیزی ننویسی، قوانین پایه استفاده می‌شود.")
 
 async def stars_toggle_callback(update, context):
     q = update.callback_query; await q.answer(); lang = context.user_data.get("lang", "fa"); data = context.user_data.get("new_challenge")
@@ -364,7 +396,7 @@ async def receive_custom_emojis(update, context):
     ids = []
     for e in (msg.entities or []):
         if getattr(e, "type", "") == MessageEntity.CUSTOM_EMOJI and getattr(e, "custom_emoji_id", None): ids.append(e.custom_emoji_id)
-    ids = ids[:6]
+    # Keep every custom emoji received; there is intentionally no six-emoji application limit.
     if not ids:
         await msg.reply_text(t(lang, "custom_emoji_bad")); return
     context.user_data["new_challenge"]["custom_emoji_ids"] = ids; context.user_data["state"] = None
@@ -387,10 +419,68 @@ async def show_preview(message, context, edit=False):
         await message.reply_text(text, reply_markup=preview_keyboard(lang), entities=build_custom_emoji_entities(text, data.get("custom_emoji_ids", [])))
 
 
+async def preview_edit_menu(update, context):
+    q = update.callback_query; await q.answer()
+    lang = context.user_data.get("lang", "fa")
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✏️ عنوان", callback_data="editfield_title"), InlineKeyboardButton("👑 برگزارکننده", callback_data="editfield_owner")],
+        [InlineKeyboardButton("📅 زمان", callback_data="editfield_time"), InlineKeyboardButton("⏳ مدت", callback_data="editfield_duration")],
+        [InlineKeyboardButton("🏆 جایزه‌ها", callback_data="editfield_prizes"), InlineKeyboardButton("📜 قوانین", callback_data="editfield_rules")],
+        [InlineKeyboardButton("⭐️ استارز", callback_data="preview_emoji"), InlineKeyboardButton("↩️ پیش‌نمایش", callback_data="preview_back")],
+    ])
+    await q.message.edit_text("✏️ ویرایش چالش\n\nبخش موردنظر را انتخاب کن. بعد از تغییر، دوباره پیش‌نمایش را می‌بینی و خودت تصمیم می‌گیری منتشر شود یا نه.", reply_markup=kb)
+
+async def edit_field_callback(update, context):
+    q=update.callback_query; await q.answer()
+    field=q.data.replace("editfield_", "")
+    lang=context.user_data.get("lang", "fa")
+    mapping={"title":"edit_title","owner":"edit_owner","time":"edit_time","duration":"edit_duration","rules":"edit_rules","prizes":"edit_prizes"}
+    if field not in mapping: return
+    context.user_data["edit_field"]=field
+    context.user_data["state"]=mapping[field]
+    prompts={
+      "title":"✏️ عنوان جدید چالش را بفرست.",
+      "owner":"👑 آیدی برگزارکننده را بفرست.\nنمونه: @username",
+      "time":"⏰ ساعت جدید را بفرست.\nنمونه: ۲۱:۳۰ یا ۹ شب",
+      "duration":"⏳ مدت جدید را به ساعت بفرست.\nنمونه: ۲۴",
+      "rules":"📜 قوانین جدید را بفرست.",
+      "prizes":"🏆 جایزه‌ها را دوباره وارد می‌کنیم؛ هر جایزه را در یک پیام جداگانه بفرست.",
+    }
+    await q.message.edit_text(prompts[field])
+
+async def receive_edit_text(update, context):
+    lang=context.user_data.get("lang","fa"); field=context.user_data.get("edit_field"); data=context.user_data.get("new_challenge")
+    if not field or not data: return
+    value=(update.message.text or "").strip()
+    try:
+        if field=="title":
+            if not value or len(value)>80: raise ValueError
+            data["title"]=value
+        elif field=="owner":
+            if not value.startswith("@"): value="@"+value
+            if not re.fullmatch(r"@[A-Za-z0-9_]{3,32}",value): raise ValueError
+            data["owner_username"]=value
+        elif field=="time":
+            h,m=parse_time(value); d=date.fromisoformat(data["day_date"]); local=local_dt_for_date(d,h,m,data["timezone"]); data["start_time"]=local.astimezone(timezone.utc).replace(tzinfo=None); data["hour"]=h; data["minute"]=m; data["end_time"]=data["start_time"]+timedelta(hours=float(data.get("duration_hours",24)))
+        elif field=="duration":
+            hours=float(value.replace(",","."));
+            if not 0<hours<=720: raise ValueError
+            data["duration_hours"]=hours; data["end_time"]=data["start_time"]+timedelta(hours=hours)
+        elif field=="rules":
+            data["rules"]=value or "پیش‌فرض"
+        else:
+            raise ValueError
+    except Exception:
+        examples={"title":"مثلاً: چالش لایکی ویژه","owner":"مثلاً: @username","time":"مثلاً: ۲۱:۳۰ یا ۹ شب","duration":"مثلاً: ۲۴","rules":"مثلاً: فقط لایک واقعی مجاز است."}
+        await update.message.reply_text("⚠️ ورودی درست نیست.\n\n"+examples.get(field,"لطفاً مقدار درست را بفرست.")); return
+    context.user_data["state"]=None; context.user_data.pop("edit_field",None); await show_preview(update.message,context)
+
 async def preview_callback(update, context):
     q = update.callback_query; await q.answer(); lang = context.user_data.get("lang", "fa")
     if q.data == "preview_cancel":
         context.user_data.pop("new_challenge", None); context.user_data["state"] = None; await q.message.edit_text(t(lang, "cancelled")); return
+    if q.data == "preview_edit":
+        await preview_edit_menu(update, context); return
     if q.data == "preview_emoji":
         await q.message.edit_text(t(lang, "custom_emoji_offer"), reply_markup=emoji_keyboard(lang)); return
     if q.data == "preview_back":
