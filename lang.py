@@ -69,6 +69,6 @@ TEXTS = {
     }
 }
 
-def t(lang, key, kwargs):
+def t(lang, key, **kwargs):
     text = TEXTS.get(lang, TEXTS["fa"]).get(key) or TEXTS["en"].get(key, key)
-    return text.format(kwargs)
+    return text.format(**kwargs)
