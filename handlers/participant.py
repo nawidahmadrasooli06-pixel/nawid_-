@@ -22,7 +22,7 @@ def participant_banner(challenge, participant):
         f"{rules}\n\n"
         "━━━━━━━━━━━━━━\n"
         f"🔗 ثبت‌نام: {challenge.get('registration_link') or '-'}\n"
-        f"📢 کانال: {challenge.get('channel_link') or '-'}\n"
+        f"📢 کانال: {challenge.get('channel_title') or challenge.get('channel_link') or '-'}\n"
         f"👑 برگزارکننده: {challenge.get('owner_username') or '-'}\n\n"
         "❤️ برای شرکت‌کننده موردنظرت لایک ثبت کن."
     )
@@ -122,6 +122,65 @@ async def receive_photo(update, context):
     await send_main_menu(update.message, context, lang, user.id)
 
 
+def participant_edit_keyboard(challenge_id):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✏️ نام", callback_data=f"pedit_name_{challenge_id}"), InlineKeyboardButton("🎂 سن", callback_data=f"pedit_age_{challenge_id}")],
+        [InlineKeyboardButton("📍 شهر / ولایت", callback_data=f"pedit_city_{challenge_id}"), InlineKeyboardButton("🖼️ عکس", callback_data=f"pedit_photo_{challenge_id}")],
+        [InlineKeyboardButton("↩️ برگشت", callback_data=f"stats_{challenge_id}")],
+    ])
+
+async def participant_edit_menu(query, context, challenge_id):
+    lang=context.user_data.get("lang","fa"); p=participant_for_user(challenge_id,query.from_user.id); c=get_challenge(challenge_id)
+    if not p or not c or not c.get("active"):
+        await query.answer("این بخش دیگر قابل ویرایش نیست.",show_alert=True); return
+    await query.answer(); await query.message.edit_text("✏️ ویرایش اطلاعات شرکت‌کننده\n\nهر بخشی را خواستی تغییر بده. بعد از تغییر، کارت کانال هم به‌روزرسانی می‌شود.",reply_markup=participant_edit_keyboard(challenge_id))
+
+async def participant_edit_field(query, context, field, challenge_id):
+    await query.answer(); p=participant_for_user(challenge_id,query.from_user.id); c=get_challenge(challenge_id)
+    if not p or not c or not c.get("active"):
+        await query.answer("این چالش دیگر فعال نیست.",show_alert=True); return
+    context.user_data["participant_edit"]={"challenge_id":str(challenge_id),"field":field}; context.user_data["state"]="participant_edit"
+    prompts={"name":"👤 نام جدیدت را بفرست.","age":"🎂 سن جدیدت را به عدد بفرست.\nنمونه: ۲۱","city":"📍 شهر یا ولایت جدیدت را بفرست.","photo":"🖼️ عکس جدیدت را به صورت عکس بفرست."}
+    await query.message.edit_text(prompts.get(field,"مقدار جدید را بفرست."))
+
+async def receive_participant_edit(update, context):
+    info=context.user_data.get("participant_edit");
+    if not info: return
+    cid=info["challenge_id"]; field=info["field"]; p=participant_for_user(cid,update.effective_user.id); c=get_challenge(cid)
+    if not p or not c or not c.get("active"):
+        await update.message.reply_text("⛔ این چالش دیگر فعال نیست."); return
+    if field=="photo":
+        if not update.message.photo:
+            await update.message.reply_text("🖼️ لطفاً عکس را به صورت عکس بفرست."); return
+        participants.update_one({"_id":p["_id"]},{"$set":{"photo_file_id":update.message.photo[-1].file_id}})
+    else:
+        value=(update.message.text or "").strip()
+        try:
+            if field=="name":
+                if not value or len(value)>60: raise ValueError
+                participants.update_one({"_id":p["_id"]},{"$set":{"name":value}})
+            elif field=="age":
+                age=int(value.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹","0123456789")))
+                if not 5<=age<=100: raise ValueError
+                participants.update_one({"_id":p["_id"]},{"$set":{"age":age}})
+            elif field=="city":
+                if not value or len(value)>80: raise ValueError
+                participants.update_one({"_id":p["_id"]},{"$set":{"city":value}})
+        except Exception:
+            examples={"name":"نامت را بنویس.","age":"مثلاً: ۲۱","city":"مثلاً: هرات یا فرانکفورت"}
+            await update.message.reply_text("⚠️ مقدار درست نیست.\n\n"+examples.get(field,"دوباره تلاش کن.")); return
+    # refresh channel card
+    newp=participant_for_user(cid,update.effective_user.id)
+    try:
+        if newp.get("post_message_id"):
+            if field=="photo":
+                await context.bot.edit_message_media(chat_id=c["channel_id"],message_id=newp["post_message_id"],media=__import__('telegram').InputMediaPhoto(newp["photo_file_id"],caption=participant_banner(c,newp)))
+            else:
+                await context.bot.edit_message_caption(chat_id=c["channel_id"],message_id=newp["post_message_id"],caption=participant_banner(c,newp),reply_markup=like_keyboard(cid,str(newp["_id"]),int(newp.get("likes",0))))
+    except Exception: pass
+    context.user_data.pop("participant_edit",None); context.user_data["state"]=None
+    await update.message.reply_text("✅ اطلاعاتت با موفقیت ویرایش شد و کارتت هم به‌روزرسانی شد.")
+
 def report_keyboard(challenge_id):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🎁 جایزه پرداخت نشده", callback_data=f"report_reason|{challenge_id}|prize")],
@@ -154,8 +213,8 @@ async def render_user_stats(query, context, challenge, participant):
     rate = int(challenge.get("stars_rate", 0)) if challenge.get("stars_enabled") else 0
     score = int(participant.get("likes", 0)) + int(participant.get("stars_received", 0)) * rate
     from handlers.owner import remaining_text
-    text = t(lang, "stats_header", title=challenge.get("title", "-"), channel=challenge.get("channel_link") or "-", number=participant.get("number"), likes=participant.get("likes", 0), stars=participant.get("stars_received", 0), score=score, star_likes=int(participant.get("stars_received", 0))*rate, remaining=remaining_text(challenge["end_time"]))
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🚨 گزارش چالش", callback_data=f"report_open_{challenge['_id']}")], [InlineKeyboardButton(t(lang, "btn_back"), callback_data="menu_back")]])
+    text = t(lang, "stats_header", title=challenge.get("title", "-"), channel=challenge.get("channel_title") or challenge.get("channel_link") or "-", number=participant.get("number"), likes=participant.get("likes", 0), stars=participant.get("stars_received", 0), score=score, star_likes=int(participant.get("stars_received", 0))*rate, remaining=remaining_text(challenge["end_time"]))
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("✏️ ویرایش اطلاعات من", callback_data=f"pedit_{challenge['_id']}" )], [InlineKeyboardButton("🚨 گزارش چالش", callback_data=f"report_open_{challenge['_id']}" )], [InlineKeyboardButton(t(lang, "btn_back"), callback_data="menu_back")]])
     await query.message.edit_text(text, reply_markup=kb)
 
 
