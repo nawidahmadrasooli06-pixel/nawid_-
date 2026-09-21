@@ -1,29 +1,47 @@
-# Challenge Bot — stable Render build
+# Challenge Bot — Final Worker Build
 
-Start command:
-`python main.py`
+نسخه نهایی برای اجرای پایدار با Telegram Polling و MongoDB.
 
-Required Render environment variables:
+## Render
+این نسخه را به صورت **Background Worker** اجرا کنید، نه Web Service.
+
+Build Command:
+```bash
+pip install -r requirements.txt
+```
+
+Start Command:
+```bash
+python main.py
+```
+
+Environment Variables:
 - `BOT_TOKEN`
 - `MONGO_URI`
 - `ADMIN_ID`
 
-The MongoDB URI and bot token are intentionally read only from environment variables.
-Do not put secrets in GitHub.
+هیچ رمز یا توکن محرمانه‌ای داخل کد قرار ندهید.
 
-Features:
-- Compact editable inline main menu
-- Persistent Telegram Start command/menu button
-- Persian / English UI
-- Challenge-specific deep-link registration
-- Name, age, city/province and profile photo
-- Channel-link validation and bot-admin check
-- Afghanistan / Iran / Germany timezone handling
-- Gregorian / Jalali dates and human-friendly times
-- Like tracking with membership and one-like-per-user protection
-- Paid Telegram Stars reaction count tracking
-- Participant and owner statistics
-- Report system routed to Super Admin
-- Automatic one-hour reminder and final results
-- Render health endpoint
-- MongoDB indexes and atomic participant numbering
+## امکانات اصلی
+- پنل اصلی با دکمه‌های اینلاین و تجربه مرحله‌به‌مرحله
+- دکمه پایدار «▶️ استارت» برای باز کردن پنل
+- پاسخ راهنما برای پیام‌های متنی و غیرمتنی بی‌ربط
+- ساخت چالش با نمونه برای هر مرحله
+- اعتبارسنجی ورودی‌ها و راهنمایی هنگام اشتباه
+- زمان‌بندی امروز، فردا، پس‌فردا و یک هفته بعد
+- انتخاب تاریخ میلادی، شمسی ایران یا شمسی افغانستان
+- تشخیص ساعت‌هایی مثل ۹ شب، ۹ عصر و 21:30
+- ثبت مدت و پایان خودکار چالش
+- لایک با کنترل عضویت کانال و جلوگیری از لایک خود
+- شمارش استارز و ضریب لایک قابل تنظیم
+- پیش‌نمایش و شخصی‌سازی ایموجی‌های سفارشی تلگرام قبل از انتشار
+- انتشار و پین بنر چالش
+- ثبت‌نام با لینک مستقیم
+- اعلام پایان چالش و اعلام نتایج دو دقیقه بعد
+- ارسال نتیجه هر برنده در پیام جداگانه همراه با عکس، نام، مشخصات، جایزه، لایک و استارز
+- آمار شرکت‌کننده و مالک
+- گزارش چالش
+- مدیریت مرکزی برای مدیر اصلی
+
+## نکته درباره دکمه آبی «Menu / Menü»
+نام این دکمه پایین صفحه توسط خود رابط تلگرام و زبان برنامه کاربر تعیین می‌شود و ربات نمی‌تواند متن آن را به «استارت» تغییر دهد. برای همین، این نسخه یک **Reply Keyboard واقعی با عنوان «▶️ استارت»** هم ارائه می‌کند که کنار کادر نوشتن قابل استفاده است.
