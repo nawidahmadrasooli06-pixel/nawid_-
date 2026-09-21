@@ -1,8 +1,6 @@
 import asyncio
 import logging
 import os
-from threading import Thread
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from telegram import BotCommand, MenuButtonCommands, Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ChatMemberHandler, MessageReactionHandler, filters
 from config import BOT_TOKEN
@@ -18,25 +16,6 @@ from handlers.admin import stats_command, block_command
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path in ("/", "/health"):
-            body = b"OK"
-            self.send_response(200)
-        else:
-            body = b"Not Found"
-            self.send_response(404)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-    def log_message(self, format, *args):
-        return
-
-def start_health_server():
-    port = int(os.environ.get("PORT", "10000"))
-    ThreadingHTTPServer(("0.0.0.0", port), HealthHandler).serve_forever()
 
 def create_application():
     app = Application.builder().token(BOT_TOKEN).build()
@@ -67,7 +46,6 @@ async def error_handler(update: object, context):
     logger.exception("Unhandled Telegram error", exc_info=context.error)
 
 async def main():
-    Thread(target=start_health_server, daemon=True).start()
     app = create_application()
     app.post_init = post_init
     app.add_error_handler(error_handler)
