@@ -1,16 +1,16 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes
 from lang import t
-from database import register_user_start, set_user_language, get_user_language, active_challenges, get_challenge, increment_deep_link_start, user_active_participations, owner_active_challenges, is_blocked
+from database import register_user_start, set_user_language, get_user_language, active_challenges, get_challenge, increment_deep_link_start, user_active_participations, owner_challenges, owner_active_challenges, delete_challenge_for_owner, is_blocked
 
 
 def main_menu_keyboard(lang, admin=False):
     rows = [
         [InlineKeyboardButton(t(lang, "btn_active"), callback_data="menu_active"), InlineKeyboardButton(t(lang, "btn_new"), callback_data="menu_new")],
         [InlineKeyboardButton("📊 آمار من" if lang == "fa" else "📊 My Stats", callback_data="menu_stats"), InlineKeyboardButton(t(lang, "btn_results"), callback_data="menu_results")],
-        [InlineKeyboardButton(t(lang, "btn_settings"), callback_data="menu_settings"), InlineKeyboardButton(t(lang, "btn_about"), callback_data="menu_about")],
-        [InlineKeyboardButton(t(lang, "btn_creator"), callback_data="menu_creator")],
-    ]
+        [InlineKeyboardButton(t(lang, "btn_settings"), callback_data="menu_settings"), InlineKeyboardButton("🗂️ مدیریت چالش‌ها", callback_data="owner_manage")],
+        [InlineKeyboardButton(t(lang, "btn_about"), callback_data="menu_about"), InlineKeyboardButton(t(lang, "btn_creator"), callback_data="menu_creator")],
+            ]
     if admin: rows.insert(0, [InlineKeyboardButton("🛡️ مدیریت مرکزی", callback_data="admin_panel")])
     return InlineKeyboardMarkup(rows)
 
@@ -86,7 +86,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         items = active_challenges()
         if not items:
             await query.message.edit_text(t(lang, "active_empty"), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(lang, "btn_back"), callback_data="menu_back")]])); return
-        rows = [[InlineKeyboardButton(f"🎯 {c.get('title','چالش')}", callback_data=f"challenge_view_{c['_id']}")] for c in items]
+        rows = [[InlineKeyboardButton(f"🎯 {c.get('title','چالش')} | 📢 {c.get('channel_title') or c.get('channel_username') or 'کانال'}", callback_data=f"challenge_view_{c['_id']}")] for c in items]
         rows.append([InlineKeyboardButton(t(lang, "btn_back"), callback_data="menu_back")])
         await query.message.edit_text(t(lang, "active_title"), reply_markup=InlineKeyboardMarkup(rows)); return
     if data == "menu_stats":
@@ -97,7 +97,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(items) == 1:
             from handlers.participant import render_user_stats
             await render_user_stats(query, context, items[0][0], items[0][1]); return
-        rows = [[InlineKeyboardButton(f"📢 {c.get('title','چالش')}", callback_data=f"stats_{c['_id']}")] for c, _ in items]
+        rows = [[InlineKeyboardButton(f"📊 {c.get('title','چالش')} | 📢 {c.get('channel_title') or c.get('channel_username') or 'کانال'}", callback_data=f"stats_{c['_id']}")] for c, _ in items]
         rows.append([InlineKeyboardButton(t(lang, "btn_back"), callback_data="menu_back")])
         await query.message.edit_text("📊 چالش موردنظر را انتخاب کن:", reply_markup=InlineKeyboardMarkup(rows)); return
     if data == "menu_results":
@@ -115,6 +115,35 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "menu_creator":
         from handlers.about import creator_callback
         await creator_callback(update, context); return
+    if data == "owner_manage":
+        await query.answer()
+        items=owner_challenges(query.from_user.id)
+        if not items:
+            await query.message.edit_text("🗂️ هنوز چالشی برای مدیریت نداری.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t(lang,"btn_back"),callback_data="menu_back")]])); return
+        rows=[]
+        for c in items:
+            status="🟢 فعال" if c.get("active") else "🏁 پایان‌یافته"
+            channel=c.get("channel_title") or c.get("channel_username") or "کانال"
+            rows.append([InlineKeyboardButton(f"{status} | {c.get('title','چالش')} | 📢 {channel}", callback_data=f"owner_manage_view_{c['_id']}")])
+        rows.append([InlineKeyboardButton(t(lang,"btn_back"),callback_data="menu_back")])
+        await query.message.edit_text("🗂️ مدیریت چالش‌های من\n\nاز اینجا چالش‌های فعال و پایان‌یافته‌ات را ببین و موارد قدیمی را از فهرست مدیریت حذف کن.", reply_markup=InlineKeyboardMarkup(rows)); return
+    if data.startswith("owner_manage_view_"):
+        await query.answer(); cid=data.split("_",3)[3]; c=get_challenge(cid)
+        if not c or c.get("owner_id")!=query.from_user.id: await query.message.edit_text("⛔ این چالش متعلق به شما نیست."); return
+        status="🟢 فعال" if c.get("active") else "🏁 پایان‌یافته"
+        channel=c.get("channel_title") or c.get("channel_username") or "کانال"
+        text=f"🎯 {c.get('title','چالش')}\n📢 کانال: {channel}\n🔗 {c.get('channel_link','-')}\n📌 وضعیت: {status}\n👥 ثبت‌نام: {len(list(__import__('database').participants.find({'challenge_id':str(c['_id'])})))}"
+        buttons=[]
+        if not c.get("active"): buttons.append([InlineKeyboardButton("🗑️ حذف از فهرست من",callback_data=f"owner_delete_{c['_id']}")])
+        buttons.append([InlineKeyboardButton("📊 آمار",callback_data=f"owner_stats_{c['_id']}")])
+        buttons.append([InlineKeyboardButton("↩️ برگشت",callback_data="owner_manage")])
+        await query.message.edit_text(text,reply_markup=InlineKeyboardMarkup(buttons)); return
+    if data.startswith("owner_delete_"):
+        await query.answer(); cid=data.split("_",2)[2]
+        if delete_challenge_for_owner(cid,query.from_user.id):
+            await query.message.edit_text("🗑️ چالش از فهرست مدیریت شما حذف شد.",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ مدیریت چالش‌ها",callback_data="owner_manage")]]))
+        else: await query.answer("این چالش قابل حذف نیست.",show_alert=True)
+        return
     if data == "admin_panel":
         from handlers.admin import admin_panel_callback
         await admin_panel_callback(update, context); return
@@ -148,6 +177,14 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("owner_board_"):
         from handlers.owner import owner_board
         await owner_board(query, context, data.split("_", 2)[2]); return
+    if data.startswith("pedit_"):
+        from handlers.participant import participant_edit_menu, participant_edit_field
+        parts=data.split("_")
+        if len(parts)==2:
+            await participant_edit_menu(query,context,parts[1])
+        else:
+            await participant_edit_field(query,context,parts[1],parts[2])
+        return
     if data.startswith("report_open_"):
         await query.answer()
         from handlers.participant import open_report_flow
