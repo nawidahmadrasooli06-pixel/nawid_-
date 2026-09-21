@@ -6,7 +6,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 from config import BOT_TOKEN
 from database import is_blocked
 from handlers.start import start_command, language_callback, menu_callback
-from handlers.owner import stars_toggle_callback, preview_callback, day_callback, timezone_callback, calendar_callback, emoji_callback
+from handlers.owner import stars_toggle_callback, preview_callback, day_callback, timezone_callback, calendar_callback, emoji_callback, preview_edit_menu, edit_field_callback, rules_preset_callback
 from handlers.like import like_callback, chat_member_update
 from handlers.about import about_callback
 from handlers.stars import message_reaction_count_update
@@ -24,11 +24,14 @@ def create_application():
     app.add_handler(CommandHandler("block", block_command))
     app.add_handler(CallbackQueryHandler(language_callback, pattern=r"^lang_(fa|en)$"))
     app.add_handler(CallbackQueryHandler(stars_toggle_callback, pattern=r"^stars_(yes|no)$"))
+    app.add_handler(CallbackQueryHandler(rules_preset_callback, pattern=r"^rules_(preset_|custom)"))
     app.add_handler(CallbackQueryHandler(preview_callback, pattern=r"^preview_(confirm|cancel|emoji|back)$"))
     app.add_handler(CallbackQueryHandler(day_callback, pattern=r"^owner_day_"))
     app.add_handler(CallbackQueryHandler(timezone_callback, pattern=r"^tz_(af|ir|de)$"))
     app.add_handler(CallbackQueryHandler(calendar_callback, pattern=r"^calendar_(gregorian|iran|afghan)$"))
     app.add_handler(CallbackQueryHandler(emoji_callback, pattern=r"^emoji_(add|continue)$"))
+    app.add_handler(CallbackQueryHandler(preview_edit_menu, pattern=r"^preview_edit$"))
+    app.add_handler(CallbackQueryHandler(edit_field_callback, pattern=r"^editfield_"))
     app.add_handler(CallbackQueryHandler(like_callback, pattern=r"^like_"))
     app.add_handler(CallbackQueryHandler(menu_callback))
     app.add_handler(MessageHandler(filters.PHOTO, photo_router))
