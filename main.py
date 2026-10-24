@@ -48,7 +48,44 @@ async def post_init(app):
 async def error_handler(update: object, context):
     logger.exception("Unhandled Telegram error", exc_info=context.error)
 
+async def _handle_http_health(reader, writer):
+    """Tiny HTTP endpoint for Render Web Service health checks."""
+    try:
+        request_line = await asyncio.wait_for(reader.readline(), timeout=5)
+        if not request_line:
+            return
+        parts = request_line.decode("latin-1", errors="replace").strip().split()
+        path = parts[1].split("?", 1)[0] if len(parts) >= 2 else "/"
+        # Consume headers so clients can safely reuse normal HTTP requests.
+        while True:
+            line = await asyncio.wait_for(reader.readline(), timeout=5)
+            if line in (b"\r\n", b"\n", b""):
+                break
+        if path in ("/", "/health", "/healthz"):
+            status, body = "200 OK", b"ok\n"
+        else:
+            status, body = "404 Not Found", b"not found\n"
+        writer.write(
+            b"HTTP/1.1 " + status.encode("ascii") + b"\r\n"
+            b"Content-Type: text/plain; charset=utf-8\r\n"
+            b"Content-Length: " + str(len(body)).encode("ascii") + b"\r\n"
+            b"Connection: close\r\n\r\n" + body
+        )
+        await writer.drain()
+    except (asyncio.TimeoutError, ConnectionError, OSError):
+        pass
+    finally:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except (ConnectionError, OSError):
+            pass
+
+
 async def main():
+    port = int(os.environ.get("PORT", "10000"))
+    health_server = await asyncio.start_server(_handle_http_health, host="0.0.0.0", port=port)
+    logger.info("HTTP health server listening on port %s", port)
     app = create_application()
     app.post_init = post_init
     app.add_error_handler(error_handler)
@@ -69,6 +106,8 @@ async def main():
             await app.updater.stop()
         await app.stop()
         await app.shutdown()
+        health_server.close()
+        await health_server.wait_closed()
 
 if __name__ == "__main__":
     asyncio.run(main())
