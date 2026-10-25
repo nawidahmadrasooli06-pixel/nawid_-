@@ -19,7 +19,9 @@ async def message_reaction_count_update(update: Update, context: ContextTypes.DE
     paid_count = 0
     for reaction in (mrc.reactions or []):
         try:
-            if getattr(reaction.type, "type", "") == "paid":
+            reaction_type = getattr(reaction.type, "type", "")
+            # PTB models paid reactions as a reaction type whose discriminator is "paid".
+            if reaction_type == "paid" or reaction_type.__class__.__name__.lower() in {"reactiontypepaid", "paidreactiontype"}:
                 paid_count = int(reaction.total_count)
                 break
         except Exception:
