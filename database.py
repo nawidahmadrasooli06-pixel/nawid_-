@@ -172,24 +172,62 @@ def set_joined_status(challenge_id, user_id, joined):
 
 
 def add_like(participant_id, liker_user_id):
+    """One like per Telegram account per challenge (not one per post)."""
+    liker_user_id = int(liker_user_id)
     p = participants.find_one({"_id": participant_id})
     if not p:
         return False, "missing"
-    if int(p.get("user_id")) == int(liker_user_id):
+    if int(p.get("user_id")) == liker_user_id:
         return False, "self"
+    # If this account already voted for any participant in this challenge,
+    # reject the second vote. MongoDB's update condition also prevents
+    # duplicate clicks on the same participant post.
+    existing_vote = participants.find_one({
+        "challenge_id": str(p["challenge_id"]),
+        "liked_by": liker_user_id
+    }, {"_id": 1})
+    if existing_vote:
+        return False, "duplicate"
     result = participants.update_one(
-        {"_id": participant_id, "liked_by": {"$ne": int(liker_user_id)}},
-        {"$inc": {"likes": 1}, "$push": {"liked_by": int(liker_user_id)}},
+        {"_id": participant_id, "liked_by": {"$ne": liker_user_id}},
+        {"$inc": {"likes": 1}, "$push": {"liked_by": liker_user_id}},
     )
     return (True, "ok") if result.modified_count else (False, "duplicate")
 
 
+def remove_like(participant_id, liker_user_id):
+    """Withdraw one account's like from a specific participant, if present."""
+    liker_user_id = int(liker_user_id)
+    result = participants.update_one(
+        {"_id": participant_id, "liked_by": liker_user_id, "likes": {"$gt": 0}},
+        {"$inc": {"likes": -1}, "$pull": {"liked_by": liker_user_id}},
+    )
+    if result.modified_count:
+        return True, "ok"
+    # Heal inconsistent legacy data without allowing a negative counter.
+    result = participants.update_one(
+        {"_id": participant_id, "liked_by": liker_user_id},
+        {"$set": {"likes": 0}, "$pull": {"liked_by": liker_user_id}},
+    )
+    return (True, "ok") if result.modified_count else (False, "not_liked")
+
+
 def remove_like_on_leave(channel_id, left_user_id):
-    channel_id = int(channel_id); left_user_id = int(left_user_id)
-    affected = participants.find({"channel_id": channel_id, "liked_by": left_user_id})
+    """Remove the leaving account's vote(s) immediately from this channel's challenges."""
+    channel_id = int(channel_id)
+    left_user_id = int(left_user_id)
+    affected = participants.find({"channel_id": channel_id, "liked_by": left_user_id}, {"_id": 1})
     for p in affected:
-        participants.update_one({"_id": p["_id"], "likes": {"$gt": 0}}, {"$inc": {"likes": -1}, "$pull": {"liked_by": left_user_id}})
-        participants.update_one({"_id": p["_id"], "likes": {"$lte": 0}}, {"$set": {"likes": 0}, "$pull": {"liked_by": left_user_id}})
+        # Atomic conditional update prevents negative counts and removes the voter.
+        result = participants.update_one(
+            {"_id": p["_id"], "liked_by": left_user_id, "likes": {"$gt": 0}},
+            {"$inc": {"likes": -1}, "$pull": {"liked_by": left_user_id}},
+        )
+        if not result.modified_count:
+            participants.update_one(
+                {"_id": p["_id"], "liked_by": left_user_id},
+                {"$set": {"likes": 0}, "$pull": {"liked_by": left_user_id}},
+            )
     participants.update_many({"channel_id": channel_id, "user_id": left_user_id}, {"$set": {"joined_channel": False}})
 
 
