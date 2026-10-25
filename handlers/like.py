@@ -2,7 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from bson import ObjectId
 from lang import t
-from database import participants, challenges, add_like, remove_like_on_leave, set_joined_status, get_challenge
+from database import participants, challenges, add_like, remove_like, remove_like_on_leave, set_joined_status, get_challenge
 
 async def like_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -32,9 +32,32 @@ async def like_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer(t(lang, "channel_required"), show_alert=True)
         return
     set_joined_status(challenge_id, query.from_user.id, True)
+
+    # Clicking the same participant's button a second time withdraws the like.
+    already_on_this_post = participants.find_one(
+        {"_id": p["_id"], "liked_by": query.from_user.id}, {"_id": 1}
+    )
+    if already_on_this_post:
+        success, reason = remove_like(p["_id"], query.from_user.id)
+        if not success:
+            await query.answer("ℹ️ این پست دیگر لایک ثبت‌شده‌ای از شما ندارد.", show_alert=False)
+            return
+        updated = participants.find_one({"_id": p["_id"]})
+        await query.answer("💔 لایک خود را پس گرفتید.")
+        try:
+            await query.edit_message_reply_markup(
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
+                    f"❤️ لایک ({updated.get('likes', 0)})", callback_data=query.data
+                )]])
+            )
+        except Exception:
+            pass
+        return
+
     success, reason = add_like(p["_id"], query.from_user.id)
     if not success:
-        await query.answer(t(lang, "already_liked") if reason == "duplicate" else "❌ خطا", show_alert=False)
+        message = "ℹ️ قبلاً در همین چالش به شرکت‌کننده دیگری لایک داده‌ای؛ اول لایک قبلی را پس بگیر." if reason == "duplicate" else "❌ خطا"
+        await query.answer(message, show_alert=(reason != "duplicate"))
         return
     updated = participants.find_one({"_id": p["_id"]})
     await query.answer(t(lang, "like_added"))
